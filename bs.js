@@ -159,6 +159,13 @@ var LETTERS = {
 		[1, , , , ],
 		[1, 1, 1, 1, 1]
 	],
+	"F": [
+		[1, 1, 1, 1, 1],
+		[1, , , , ],
+		[1, 1, 1, , ],
+		[1, , , , ],
+		[1, , , , ]
+	],
 	"G": [
 		[1, 1, 1, 1, 1],
 		[1, , , , ],
@@ -277,6 +284,13 @@ var LETTERS = {
 		[, , , , ],
 		[, , , , ],
 		[, , , , ]
+	],
+	".": [
+		[, , , , ],
+		[, , , , ],
+		[, , , , ],
+		[, , , , ],
+		[, , 1, , ]
 	]
 };
 
@@ -628,7 +642,6 @@ function ai( ship ) {
 
 	// Lay out all possible options.
 	var conquerSector = {
-		weight: 30,
 		condition: function() {
 			var sectors = G.world.sectors.filter(function( sector ) {
 				var friendsAround = shipsAround( sector, friends, SHIP_ATTACK_RADIUS * 2 );
@@ -647,7 +660,6 @@ function ai( ship ) {
 	};
 
 	var evade = {
-		weight: 20,
 		condition: function() {
 			return ship.underAttack && shipsAround( ship, friends, SHIP_ATTACK_RADIUS * 2 ) - rand(2) < shipsAround( ship, enemies, SHIP_ATTACK_RADIUS * 2 );
 		},
@@ -663,7 +675,6 @@ function ai( ship ) {
 	};
 
 	var defendFriend = {
-		weight: 10,
 		condition: function() {
 			return !!(this.target = friends.filter(function( f ) {
 				return shipsAround( f, enemies, SHIP_ATTACK_RADIUS ) > pick([2, 3]);
@@ -675,7 +686,6 @@ function ai( ship ) {
 	};
 
 	var attack = {
-		weight: ship.underAttack > 0 ? 55 : 30,
 		condition: function() {
 			var enemy = ship.getClosestEnemy();
 			return enemy && shipsAround( enemy, enemies, SHIP_ATTACK_RADIUS * 2 ) - 2 < shipsAround( ship, enemies, SHIP_ATTACK_RADIUS * 2 );
@@ -687,7 +697,6 @@ function ai( ship ) {
 	};
 
 	var defendBase = {
-		weight: 25,
 		condition: function() {
 			this.base = pick( G.world.sectors.filter(function( s ) {
 				return s.team === ship.team 
@@ -702,19 +711,16 @@ function ai( ship ) {
 
 	var options = [conquerSector, evade, attack, defendBase, defendFriend];
 
-	var r = rand();
-	var totalWeight = options.reduce(function( w, opt ) { return w + opt.weight; }, 0);
 	var opt = pick( options.filter(function( o ) {
-		var tmp = r;
-		var perc = o.weight / totalWeight;
-		r -= perc;
-		return tmp < perc && o.condition();
+
+		return (rand() < G.world.aiSmart) && o.condition();
 	}));
+
 	if( opt ) {
 		ship.addBehaviour( opt.behaviour() );
 	}
 
-	ship.nextBehaviourCheck = 2;
+	ship.nextBehaviourCheck = 2.5;
 
 }
 
@@ -776,7 +782,7 @@ function Ship(x, y, type) {
 	this.underAttack = 0;
 
 	// for enemies
-	this.nextBehaviourCheck = 0;
+	this.nextBehaviourCheck = 1;
 
 	var points = [1,0, -0.4,1, -1,0.8, -0.5,0, -1,-0.8, -0.4,-1];
 	for (var i = 0; points && i < points.length; i += 2) {
@@ -1281,6 +1287,7 @@ function World() {
 	this.particles = [];
 	this.accumPlayerWins = 0;
 	this.aiDelay = 4;
+	this.playingTime = 0;
 
 	this.init = function() {
 		G.level++;
@@ -1291,16 +1298,16 @@ function World() {
 		this.enemies.length = 0;
 		this.bullets.length = 0;
 		this.particles.length = 0;
-		this.playingTime = 0;
-		this.aiSmart = 0;
+		this.aiSmart = 0.2 + ( 1 - Math.exp( -( G.level - 0.8 ) / 12 ) );
 		this.playerWins = 2;
-		this.enemyWins = 3;
+		this.enemyWins = 2;
 		this.gameOver = false;
+		this.gameWon = false;
 		this.reload = 0;
 
-		var i = G.rnd.i( 5, 15 );
-		var ratio = 4/3;
-		this.width = max( 1800, 2.5 * i * SECTOR_RADIUS * 2 );
+		var i = min( 13, G.rnd.i( G.level + 3, G.level + 6 ) );
+		var ratio = 4/3; 
+		this.width = max( 1700, 2.5 * i * SECTOR_RADIUS * 2 );
 		this.height = this.width / ratio;
 		this.winSize =  1 / ( ( i + 4 ) );
 		G.initBackground();
@@ -1324,9 +1331,9 @@ function World() {
 		// enemy
 		this.spawnShipsAround(leftX, this.height - SECTOR_RADIUS * 2, SECTOR_RADIUS + 5, 6, ENEMY, true);
 		this.spawnShipsAround(leftX + SECTOR_RADIUS * 6, this.height - SECTOR_RADIUS * 2, SECTOR_RADIUS + 10, 6, ENEMY, true);
-		this.spawnShipsAround(leftX + SECTOR_RADIUS * 3, this.height - SECTOR_RADIUS * 4, SECTOR_RADIUS + 10, 6, ENEMY);
 
 		tween( G.camera, "x", 0, this.width/2 - W/2, 2.5, swing );
+		tween( G.camera, "y", G.camera.y, 0, 2.5, swing );
 	};
 
 	this.spawnShipsAround = function(x, y, radius, amount, team, isBase) {
@@ -1450,15 +1457,14 @@ function World() {
 		this.playerWins = max( 0, this.playerWins );
 		this.enemyWins = max( 0, this.enemyWins );
 		!this.gameOver && ( this.playingTime += G.dt );
-		this.aiSmart = 0.2 + ( 1 - Math.exp( -( G.level - 0.8 ) / 12 ) );
 		this.aiDelay = max( 0, this.aiDelay - G.dt );
 
 		if( !this.gameOver ) {
 			if( this.player.length === 0 ) {
 				this.endGame(false);
-			} else if( this.enemyWins === this.winSize ) {
+			} else if( this.enemyWins === this.sectors.length ) {
 				this.endGame(false);
-			} else if( this.playerWins === this.winSize ) {
+			} else if( this.playerWins === this.sectors.length ) {
 				this.endGame(true);
 			}
 		}
@@ -1610,46 +1616,75 @@ function World() {
 			});
 			G.ctx.restore();
 
-			if( this.gameOver && G.world.reload > 0 ) {
+			if ( this.reload > 0 ) {
 				G.ctx.translate( G.camera.x, G.camera.y );
 				G.world.reload -= G.dt;
 				rect( 0, H/3, W, H/3 );
-				fill( "rgb(150,150,150)" );
+				fill( "rgb(80,80,80)" );
 
-				drawText({
-					x: W/2,
-					y: H/2.8,
-					text: "Game Over",
-					hspacing: 3,
-					scale: 5,
-					halign: "center"
-				});
-				fill( "rgb(220,0,20)" );
-
-				if( G.world.reload < 6 ) {
+				if( !this.gameWon ) {
 					drawText({
 						x: W/2,
-						y: H/2.2,
-						text: "You survived " + G.level + " rounds and secured " + G.world.accumPlayerWins + " sectors\nin " + formatTime( this.playingTime ) + " minutes",
+						y: H/2.8,
+						text: "Game Over",
 						hspacing: 3,
-						vspacing: 3,
-						scale: 3,
+						scale: 5,
 						halign: "center"
 					});
-					fill( "rgb(1,1,1)" );
+					fill( "rgb(220,0,20)" );
+
+					if( this.reload < 6 ) {
+						drawText({
+							x: W/2,
+							y: H/2.2,
+							text: "You survived " + G.level + " rounds and secured " + this.accumPlayerWins + " sectors\nin " + formatTime( this.playingTime ) + " minutes",
+							hspacing: 3,
+							vspacing: 3,
+							scale: 3,
+							halign: "center"
+						});
+						fill( "rgb(1,1,1)" );
+						drawText({
+							x: W/2,
+							y: H/2 + 40,
+							text: "Best stat: " + G.getData( "won" ) + " sectors",
+							hspacing: 1,
+							scale: 2,
+							halign: "center"
+						});
+						fill( "rgb(20,130,10)" );
+					}
+
+					if( this.reload < 0 ) {
+						window.location.reload();
+					}
+				} else {
 					drawText({
 						x: W/2,
-						y: H/2 + 40,
-						text: "Best stat: " + G.getData( "won" ) + " sectors",
-						hspacing: 1,
-						scale: 2,
+						y: H/2.8,
+						text: "Round Won",
+						hspacing: 3,
+						scale: 5,
 						halign: "center"
 					});
-					fill( "rgb(20,130,10)" );
-				}
+					fill( "rgb(10,250,20)" );
 
-				if( G.world.reload < 0 ) {
-					window.location.reload();
+					if( this.reload < 6 ) {
+						drawText({
+							x: W/2,
+							y: H/2.2,
+							text: "You secured all sectors. Get ready for round " + (G.level + 1),
+							hspacing: 3,
+							vspacing: 3,
+							scale: 3,
+							halign: "center"
+						});
+						fill( "rgb(1,1,1)" );
+					}
+
+					if( this.reload < 0 ) {
+						G.world.init();
+					}
 				}
 			}
 
@@ -1658,20 +1693,11 @@ function World() {
 
 	this.endGame = function( success ) {
 		this.gameOver = true;
+		this.gameWon = success;
 		this.accumPlayerWins += this.playerWins;
 		G.saveData( "won", max( G.getData( "won" ), this.accumPlayerWins ) );
-
-		if( !success ) {
-			setTimeout(function() {
-				tween( G, "flashAlpha", 0.7, 0.1, 1, swing );
-				G.world.reload = 13;
-			}, 1000);
-		} else {
-			setTimeout(function() {
-				tween( G, "flashAlpha", 9, 0.0, 1, swing );
-				G.world.init();
-			}, 1000);
-		}
+		G.world.reload = 7;
+		tween( G, "flashAlpha", 0.7, 0, 1, swing );
 	};
 
 }
@@ -2069,7 +2095,7 @@ var MenuScene = {
 
 		this.playerSector = new Sector( W/8, H * 0.55, SECTOR_RADIUS );
 		this.playerSector.team = PLAYER;
-		this.enemySector = new Sector( W*3.5/4, H * 0.52, SECTOR_RADIUS );
+		this.enemySector = new Sector( W*3.5/4 - 50, H * 0.52, SECTOR_RADIUS );
 		this.enemySector.team = ENEMY;
 		this.target = new Sector( W/2, H * 0.55, SECTOR_RADIUS );
 		this.sectors = [this.playerSector, this.enemySector, this.target];
